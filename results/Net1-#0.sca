@@ -1,0 +1,123 @@
+version 2
+run Net1-0-20181127-09:43:54-1419
+attr configname Net1
+attr datetime 20181127-09:43:54
+attr experiment Net1
+attr inifile omnetpp.ini
+attr iterationvars ""
+attr iterationvarsf ""
+attr measurement ""
+attr network Net
+attr processid 1419
+attr repetition 0
+attr replication #0
+attr resultdir results
+attr runnumber 0
+attr seedset 0
+param **.gen.interArrivalTime exponential(0.5s)
+param **.sys.serviceTime exponential(0.4s)
+
+scalar Net.sys responseTime:mean 2.1399202125085
+attr interpolationmode none
+attr title "response time at end of service, mean"
+attr unit s
+scalar Net.sys responseTime:max 21.258492586172
+attr interpolationmode none
+attr title "response time at end of service, max"
+attr unit s
+scalar Net.sys queueingTime:mean 1.7414400903076
+attr interpolationmode none
+attr title "queueing time at dequeue, mean"
+attr unit s
+scalar Net.sys queueingTime:max 20.994383429505
+attr interpolationmode none
+attr title "queueing time at dequeue, max"
+attr unit s
+scalar Net.sys busy:timeavg 0.79414092622281
+attr interpolationmode sample-hold
+attr title "server busy state, timeavg"
+scalar Net.sys qlen:timeavg 3.4726744447852
+attr interpolationmode sample-hold
+attr title "queue length, timeavg"
+scalar Net.sys qlen:max 47
+attr interpolationmode sample-hold
+attr title "queue length, max"
+scalar Net.sink arrivedMsg:last 7177
+attr interpolationmode none
+attr title "number of arrived msg, last"
+statistic Net.sink lifetime:histogram
+field count 7177
+field mean 2.1399202125085
+field stddev 2.7736146224225
+field min 2.2140758e-05
+field max 21.258492586172
+field sum 15358.207365174
+field sqrsum 88069.861985616
+attr interpolationmode none
+attr title "lifetime of arrived msg, histogram"
+attr unit s
+bin	-inf	0
+bin	0	1323
+bin	0.4	1134
+bin	0.8	861
+bin	1.2	704
+bin	1.6	566
+bin	2	503
+bin	2.4	408
+bin	2.8	332
+bin	3.2	253
+bin	3.6	192
+bin	4	167
+bin	4.4	128
+bin	4.8	96
+bin	5.2	74
+bin	5.6	52
+bin	6	48
+bin	6.4	45
+bin	6.8	14
+bin	7.2	11
+bin	7.6	21
+bin	8	19
+bin	8.4	14
+bin	8.8	11
+bin	9.2	7
+bin	9.6	4
+bin	10	1
+bin	10.4	5
+bin	10.8	1
+bin	11.2	2
+bin	11.6	4
+bin	12	5
+bin	12.4	10
+bin	12.8	9
+bin	13.2	19
+bin	13.6	12
+bin	14	6
+bin	14.4	7
+bin	14.8	6
+bin	15.2	3
+bin	15.6	5
+bin	16	3
+bin	16.4	13
+bin	16.8	13
+bin	17.2	28
+bin	17.6	12
+bin	18	6
+bin	18.4	7
+bin	18.8	4
+bin	19.2	0
+bin	19.6	1
+bin	20	1
+bin	20.4	3
+bin	20.8	2
+bin	21.2	2
+bin	21.6	0
+scalar Net.sink lifetime:mean 2.1399202125085
+attr interpolationmode none
+attr title "lifetime of arrived msg, mean"
+attr unit s
+scalar Net.sink lifetime:max 21.258492586172
+attr interpolationmode none
+attr title "lifetime of arrived msg, max"
+attr unit s
+
