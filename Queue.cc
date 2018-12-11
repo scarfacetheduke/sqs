@@ -2,7 +2,6 @@
 
 using namespace omnetpp;
 
-
 class Queue : public cSimpleModule
 {
   protected:
@@ -10,11 +9,21 @@ class Queue : public cSimpleModule
     cMessage *endServiceMsg;
 
     cQueue queue;
+    long total;
+    long dropped;
+    simtime_t congestionStart;
+    simtime_t congestion;
 
     simsignal_t qlenSignal;
     simsignal_t busySignal;
     simsignal_t queueingTimeSignal;
     simsignal_t responseTimeSignal;
+    simsignal_t droppedSignal;
+    simsignal_t droppedPercSignal;
+    simsignal_t timeCongestionSignal;
+
+    double getDroppedPerc();
+    bool isBlocked();
 
   public:
     Queue();
@@ -48,9 +57,20 @@ void Queue::initialize()
     busySignal = registerSignal("busy");
     queueingTimeSignal = registerSignal("queueingTime");
     responseTimeSignal = registerSignal("responseTime");
+    droppedSignal = registerSignal("dropped");
+    droppedPercSignal = registerSignal("droppedPerc");
+    timeCongestionSignal = registerSignal("timeCongestion");
+
+    dropped = 0;
+    total = 0;
+    congestionStart = SIMTIME_ZERO;
+    congestion = SIMTIME_ZERO;
 
     emit(qlenSignal, queue.getLength());
     emit(busySignal, false);
+    emit(droppedSignal, dropped);
+    emit(droppedPercSignal, getDroppedPerc());
+    emit(timeCongestionSignal, congestion);
 }
 
 void Queue::handleMessage(cMessage *msg)
@@ -72,7 +92,13 @@ void Queue::handleMessage(cMessage *msg)
         }
         else { // Queue contains users
 
+            if(isBlocked()){
+                EV << "Congestion: " << congestion << " start: " << congestionStart << endl;
+                congestion += simTime() - congestionStart;
+            }
+
             msgServiced = (cMessage *)queue.pop();
+
             emit(qlenSignal, queue.getLength()); //Queue length changed, emit new length!
 
             //Waiting time: time from msg arrival to time msg enters the server (now)
@@ -89,6 +115,7 @@ void Queue::handleMessage(cMessage *msg)
 
         //Setting arrival timestamp as msg field
         msg->setTimestamp();
+        total++;
 
         if (!msgServiced) { //No message in service (server IDLE) ==> No queue ==> Direct service
 
@@ -104,9 +131,32 @@ void Queue::handleMessage(cMessage *msg)
         }
         else {  //Message in service (server BUSY) ==> Queuing
             EV << msg->getName() << " enters queue"<< endl;
-            queue.insert(msg);
-            emit(qlenSignal, queue.getLength()); //Queue length changed, emit new length!
+
+            if (isBlocked()){
+                EV << "Rejected " << msg->getName() << endl;
+                emit(droppedSignal, ++dropped);
+                delete(msg);
+            }
+            else{
+                queue.insert(msg);
+
+                if (isBlocked())
+                    congestionStart = simTime();
+
+                emit(qlenSignal, queue.getLength()); //Queue length changed, emit new length!
+            }
+
+            emit(droppedPercSignal, getDroppedPerc());
 
        }
     }
+}
+
+double Queue::getDroppedPerc(){
+    if (total == 0) return 0;
+    return (double)((double)dropped/(double)total);
+}
+
+bool Queue::isBlocked(){
+    return queue.getLength() >= par("queueSize").longValue();
 }

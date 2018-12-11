@@ -5,7 +5,7 @@ network Net
             parameters:
                 @display("p=89,100");
         }
-        sys: Queue {
+        sys: MSQueue {
             parameters:
                 @display("p=329,100");
         }
