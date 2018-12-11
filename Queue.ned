@@ -2,6 +2,7 @@ simple Queue
 {
     parameters:
         volatile double serviceTime @unit(s);
+        volatile bool fifo;
         @display("i=block/queue;q=queue");
         
         @signal[qlen](type="long");

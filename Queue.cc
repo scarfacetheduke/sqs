@@ -72,6 +72,7 @@ void Queue::handleMessage(cMessage *msg)
         }
         else { // Queue contains users
 
+
             msgServiced = (cMessage *)queue.pop();
             emit(qlenSignal, queue.getLength()); //Queue length changed, emit new length!
 
@@ -104,7 +105,24 @@ void Queue::handleMessage(cMessage *msg)
         }
         else {  //Message in service (server BUSY) ==> Queuing
             EV << msg->getName() << " enters queue"<< endl;
-            queue.insert(msg);
+            //EV << par("schedPolicy") << endl;
+            //EV << (char[])par("schedPolicy") << endl;
+
+            if (par("fifo").boolValue()){
+                EV << "hello :) i'm in FCFS mode" << endl;
+                queue.insert(msg);
+            }
+            else {
+                if (queue.getLength() == 0){
+                    EV << "hello :) queue len = 0" << endl;
+                    queue.insert(msg);
+                }
+                else{
+                    EV << "hello :) queue len != 0" << endl;
+                    queue.insertBefore(queue.back(), msg);
+                }
+            }
+
             emit(qlenSignal, queue.getLength()); //Queue length changed, emit new length!
 
        }
