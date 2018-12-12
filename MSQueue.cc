@@ -1,16 +1,19 @@
 #include <omnetpp.h>
+#include <vector>
+#include <unistd.h>
 
 using namespace omnetpp;
 
 class MSQueue : public cSimpleModule
 {
   protected:
-    cMessage *msgServiced;
-    cMessage *endServiceMsg;
+    std::vector<cMessage*> aServiced; // Vector for messages in service
+    std::vector<cMessage*> aEndMsg; // Vector for end service messages
 
     cQueue queue;
     long total;
     long dropped;
+    long inService;
     simtime_t congestionStart;
     simtime_t congestion;
     simtime_t busyStart;
@@ -26,9 +29,15 @@ class MSQueue : public cSimpleModule
     simsignal_t avgUtilizationSignal;
     simsignal_t avgActiveServersSignal;
 
+    // Methods
+    cMessage* deQueue();
     double getDroppedPerc();
     double getActiveServers();
     bool isBlocked();
+    bool canServe();
+    void removeObj(std::vector<cMessage*> vector, cMessage* obj);
+    cMessage* getServicedMessage(cMessage* end);
+    bool isIdle();
 
   public:
     MSQueue();
@@ -42,22 +51,23 @@ class MSQueue : public cSimpleModule
 Define_Module(MSQueue);
 
 
-MSQueue::MSQueue()
-{
-    msgServiced = endServiceMsg = nullptr;
-}
+MSQueue::MSQueue() { } // Constructor
 
-MSQueue::~MSQueue()
+MSQueue::~MSQueue() // Destructor
 {
-    delete msgServiced;
-    cancelAndDelete(endServiceMsg);
+    // Resize the vectors to size 0
+    aServiced.clear();
+    aServiced.shrink_to_fit();
+
+    aEndMsg.clear();
+    aEndMsg.shrink_to_fit();
 }
 
 void MSQueue::initialize()
 {
-    endServiceMsg = new cMessage("end-service");
     queue.setName("queue");
 
+    // Signal Registration
     qlenSignal = registerSignal("qlen");
     busySignal = registerSignal("busy");
     queueingTimeSignal = registerSignal("queueingTime");
@@ -68,13 +78,16 @@ void MSQueue::initialize()
     avgUtilizationSignal = registerSignal("avgUtilization");
     avgActiveServersSignal = registerSignal("avgActiveServers");
 
+    // Initialize default values for the variables
     dropped = 0;
     total = 0;
+    inService = 0;
     congestionStart = SIMTIME_ZERO;
     congestion = SIMTIME_ZERO;
     busyStart = SIMTIME_ZERO;
     busyTime = SIMTIME_ZERO;
 
+    // Update the stats
     emit(qlenSignal, queue.getLength());
     emit(busySignal, false);
     emit(droppedSignal, dropped);
@@ -86,100 +99,174 @@ void MSQueue::initialize()
 
 void MSQueue::handleMessage(cMessage *msg)
 {
-    if (msg == endServiceMsg) { // Self-message arrived
+    EV << "Name: " << msg->getName() << endl;
+    if (strcmp(msg->getName(), "end-service") == 0) { // Self-message arrived
 
-        EV << "Completed service of " << msgServiced->getName() << endl;
-        send(msgServiced, "out");
+        auto serviced = getServicedMessage(msg); // Remove the message from the service
+        EV << "Serviced: " << serviced << endl;
 
-        //Response time: time from msg arrival timestamp to time msg ends service (now)
-        emit(responseTimeSignal, simTime() - msgServiced->getTimestamp());
+        inService--;
+        EV << "Completed service of " << serviced->getName() << endl;
 
-        if (queue.isEmpty()) { // Empty queue, server goes in IDLE
+        send(serviced, "out"); // Send it to the out gate
+        emit(responseTimeSignal, simTime() - serviced->getTimestamp()); //Update the response time
 
-            EV << "Empty queue, server goes IDLE" <<endl;
-            msgServiced = nullptr;
-            emit(busySignal, false);
-            emit(avgUtilizationSignal, busyTime);
-            emit(avgActiveServersSignal, getActiveServers());
-            busyTime += simTime() - busyStart;
+        //return;
+
+        //removeObj(aServiced, serviced); // Remove the message from the serviced vector
+        //delete(serviced); // Deallocate from memory
+
+        if (queue.isEmpty()) { // Empty queue
+
+            EV << "Empty queue" <<endl;
+
+            if (isIdle()) { // All servers are idle
+
+                EV << "All servers are idle" << endl;
+
+                // Update the stats
+                emit(busySignal, false);
+                emit(avgUtilizationSignal, busyTime);
+                emit(avgActiveServersSignal, getActiveServers());
+                busyTime += simTime() - busyStart;
+            }
         }
         else { // MSQueue contains users
 
-            if(isBlocked()){
+            if (isBlocked()){ // Limited queue is full
+                // We terminate the congestion because we removed a user from the queue
                 EV << "Congestion: " << congestion << " start: " << congestionStart << endl;
+                // Update the total congestion time
                 congestion += simTime() - congestionStart;
             }
 
-            msgServiced = (cMessage *)queue.pop();
+            auto toServe = deQueue(); // We extract a message from the queue basing on the chosen policy
+            aServiced.push_back(toServe); // We add it to the serviced vector
 
-            emit(qlenSignal, queue.getLength()); //MSQueue length changed, emit new length!
+            // Update the stats
+            emit(qlenSignal, queue.getLength());
+            emit(queueingTimeSignal, simTime() - toServe->getTimestamp());
 
-            //Waiting time: time from msg arrival to time msg enters the server (now)
-            emit(queueingTimeSignal, simTime() - msgServiced->getTimestamp());
-
-            EV << "Starting service of " << msgServiced->getName() << endl;
-            simtime_t serviceTime = ((double)par("serviceTime")) / (par("nbServer").longValue()); // Time / C
-            scheduleAt(simTime()+serviceTime, endServiceMsg);
-
+            EV << "Starting service of " << toServe->getName() << endl;
+            simtime_t serviceTime = par("serviceTime"); // Get a random service time based on the distribution
+            auto endServiceMsg = new cMessage("end-service"); // Make a new end service message
+            aEndMsg.push_back(endServiceMsg); // Add the new end service message to the vector
+            inService++;
+            scheduleAt(simTime()+serviceTime, endServiceMsg); // Schedule it
         }
 
+        removeObj(aEndMsg, msg); // Remove the end service message from the array
+        cancelAndDelete(msg); // Deallocate from memory
     }
-    else { // Data msg has arrived
+    else { // Data message has arrived
 
-        //Setting arrival timestamp as msg field
         msg->setTimestamp();
-        total++;
+        total++; // We increase the total number of received messages
 
-        if (!msgServiced) { //No message in service (server IDLE) ==> No queue ==> Direct service
+        if (canServe()) { //There is an available server
 
-            ASSERT(queue.getLength() == 0);
+            ASSERT(queue.getLength() == 0); // Make sure the queue is empty
 
-            msgServiced = msg;
+            aServiced.push_back(msg); // We insert the message in the service array
             emit(queueingTimeSignal, SIMTIME_ZERO);
 
-            EV << "Starting service of " << msgServiced->getName() << endl;
-            simtime_t serviceTime = ((double)par("serviceTime")) / (par("nbServer").longValue()); // Time / C
-            EV << "service time is " << serviceTime << endl;
-            scheduleAt(simTime()+serviceTime, endServiceMsg);
+            EV << "Starting service of " << msg->getName() << endl;
+            simtime_t serviceTime = par("serviceTime"); // Get a random service time based on the distribution
+            auto endServiceMsg = new cMessage("end-service"); // Make a new end service message
+            aEndMsg.push_back(endServiceMsg); // Add the new end service message to the vector
+            inService++;
+            scheduleAt(simTime()+serviceTime, endServiceMsg); // Schedule it
+
+            // Update the stats
             emit(busySignal, true);
             emit(avgUtilizationSignal, busyTime);
             emit(avgActiveServersSignal, getActiveServers());
             busyStart = simTime();
         }
-        else {  //Message in service (server BUSY) ==> Queuing
+        else {  // Servers are busy, add to the queue
+
             EV << msg->getName() << " enters queue"<< endl;
 
-            if (isBlocked()){
+            if (isBlocked()){ // Queue is full
                 EV << "Rejected " << msg->getName() << endl;
-                emit(droppedSignal, ++dropped);
-                delete(msg);
+                emit(droppedSignal, ++dropped); // We increase the dropped counter
+                delete(msg); // We delete the message from memory
             }
-            else{
-                queue.insert(msg);
+            else{ // Queue is not full
 
-                if (isBlocked())
+                 queue.insert(msg); // We insert the message in the queue
+
+                if (isBlocked()) // If we filled the queue, start the congestion interval
                     congestionStart = simTime();
 
-                emit(qlenSignal, queue.getLength()); //Queue length changed, emit new length!
+                emit(qlenSignal, queue.getLength()); // Update the queue length stat
             }
 
-            emit(droppedPercSignal, getDroppedPerc());
-
+            emit(droppedPercSignal, getDroppedPerc()); // Update the dropped stat (in both cases, it's a percentage!)
        }
     }
 }
 
-double MSQueue::getDroppedPerc(){
+cMessage* MSQueue::deQueue(){ // Returns the next message to be processed basing on the scheduling policy
+
+    auto policy = par("policy").stringValue(); // Get the policy from the NED parameter
+    cObject* msg;
+
+    if (strcmp(policy, "FCFS") == 0){ // FCFS policy handling
+        msg = queue.get(0); // Return the first element of the queue
+    }
+    else if (strcmp(policy, "LCFS") == 0) { // LCFS policy handling
+        msg = queue.get(queue.getLength()-1); // We return the last element of the queue
+    }
+    else{
+        EV << "The policy " << policy << " is not defined!" << endl;
+        return nullptr;
+    }
+
+    if (msg)
+        return (cMessage*)queue.remove(msg);
+}
+
+double MSQueue::getDroppedPerc(){ // Returns the percentage of dropped users
     if (total == 0) return 0;
     return (double)((double)dropped/(double)total);
 }
 
-bool MSQueue::isBlocked(){
+bool MSQueue::isBlocked(){ // Returns if the queue is full
     return queue.getLength() >= par("queueSize").longValue();
 }
 
-double MSQueue::getActiveServers(){
+double MSQueue::getActiveServers(){ // Gets the mean active servers
     if (simTime().dbl() == 0) return 0;
     auto activePerc = busyTime.dbl() / simTime().dbl();
-    return activePerc*par("nbServer").longValue();
+    if (par("infServers").boolValue()) return 0; // Infinite servers case, return 0
+    else return activePerc*par("nbServer").longValue();
+}
+
+bool MSQueue::canServe(){ // Returns true if there is an available server
+    if (par("infServers").boolValue()) // Infinite servers case, always available
+            return true;
+    else // Finite servers case
+        return aServiced.size() <= par("nbServer").longValue();
+}
+
+cMessage* MSQueue::getServicedMessage(cMessage* end){ // Gets the serviced message related to the end service message
+    for(int i=0; i < aEndMsg.size(); i++){
+        if (aEndMsg[i] == end)
+            return (cMessage*)aServiced[i];
+    }
+    return nullptr; // We didn't find anything
+}
+
+void MSQueue::removeObj(std::vector<cMessage*> vector, cMessage* obj){ // Removes an object from a vector
+    for (auto i = vector.begin(); i != vector.end(); ++i) {
+        if ((cMessage*)&i == obj) {
+            i = vector.erase(i);
+            return;
+        }
+    }
+}
+
+bool MSQueue::isIdle(){ // Returns true if there is no message in service
+    return aServiced.size() == 0;
 }
