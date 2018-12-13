@@ -103,18 +103,16 @@ void MSQueue::handleMessage(cMessage *msg)
     if (strcmp(msg->getName(), "end-service") == 0) { // Self-message arrived
 
         auto serviced = getServicedMessage(msg); // Remove the message from the service
-        EV << "Serviced: " << serviced << endl;
+        EV << "Serviced: " << serviced->getName() << endl;
 
         inService--;
         EV << "Completed service of " << serviced->getName() << endl;
 
-        send(serviced, "out"); // Send it to the out gate
         emit(responseTimeSignal, simTime() - serviced->getTimestamp()); //Update the response time
-
-        //return;
-
-        //removeObj(aServiced, serviced); // Remove the message from the serviced vector
-        //delete(serviced); // Deallocate from memory
+        EV << "Owner: " << serviced->getOwner() << endl;
+        send(serviced->dup(), "out"); // Send it to the out gate
+        removeObj(aServiced, serviced); // Remove the message from the serviced vector
+        delete(serviced); // Deallocate from memory
 
         if (queue.isEmpty()) { // Empty queue
 
@@ -223,8 +221,7 @@ cMessage* MSQueue::deQueue(){ // Returns the next message to be processed basing
         return nullptr;
     }
 
-    if (msg)
-        return (cMessage*)queue.remove(msg);
+    return (cMessage*)queue.remove(msg);
 }
 
 double MSQueue::getDroppedPerc(){ // Returns the percentage of dropped users
@@ -251,6 +248,7 @@ bool MSQueue::canServe(){ // Returns true if there is an available server
 }
 
 cMessage* MSQueue::getServicedMessage(cMessage* end){ // Gets the serviced message related to the end service message
+    if (end == nullptr) return nullptr;
     for(int i=0; i < aEndMsg.size(); i++){
         if (aEndMsg[i] == end)
             return (cMessage*)aServiced[i];
@@ -259,12 +257,14 @@ cMessage* MSQueue::getServicedMessage(cMessage* end){ // Gets the serviced messa
 }
 
 void MSQueue::removeObj(std::vector<cMessage*> vector, cMessage* obj){ // Removes an object from a vector
+    if (obj == nullptr) return;
     for (auto i = vector.begin(); i != vector.end(); ++i) {
         if ((cMessage*)&i == obj) {
             i = vector.erase(i);
             return;
         }
     }
+    return;
 }
 
 bool MSQueue::isIdle(){ // Returns true if there is no message in service
