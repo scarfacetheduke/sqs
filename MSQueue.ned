@@ -14,7 +14,7 @@ simple MSQueue
         @signal[responseTime](type="simtime_t");
         @signal[dropped](type="long");
         @signal[droppedPerc](type="double");
-        @signal[timeCongestion](type="simtime_t");
+        @signal[timeCongestion](type="double");
         @signal[avgUtilization](type="simtime_t");
         @signal[avgActiveServers](type="double");
         
@@ -22,9 +22,9 @@ simple MSQueue
         @statistic[busy](title="server busy state";record=vector?,timeavg;interpolationmode=sample-hold);
         @statistic[queueingTime](title="queueing time at dequeue";unit=s;record=vector,mean,max;interpolationmode=none);
         @statistic[responseTime](title="response time at end of service";unit=s;record=vector,mean,max;interpolationmode=none);
-        @statistic[timeCongestion](title="time congestion";unit=s;record=vector,mean,max;interpolationmode=none);
-    	@statistic[dropped](title="dropped users";record=vector,last; interpolationmode=none);
-    	@statistics[droppedPerc](title="percentage of dropped users"; record=vector,last; interpolationmode=none);
+        @statistic[timeCongestion](title="time congestion";unit=s;record=mean,max;interpolationmode=none);
+    	@statistic[dropped](title="dropped users";record=last; interpolationmode=none);
+    	@statistics[droppedPerc](title="percentage of dropped users"; record=last; interpolationmode=none);
     	@statistic[avgUtilization](title="avg utilization";unit=s;record=vector,mean,max;interpolationmode=none);
     	@statistic[avgActiveServers](title="avg active servers";unit=s;record=vector,mean,max;interpolationmode=none);
     gates:

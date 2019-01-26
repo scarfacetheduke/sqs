@@ -1,6 +1,5 @@
 #include <omnetpp.h>
 #include <vector>
-#include <unistd.h>
 
 using namespace omnetpp;
 
@@ -16,6 +15,7 @@ class MSQueue : public cSimpleModule
     long inService;
     simtime_t congestionStart;
     simtime_t congestion;
+    double congestionTime;
     simtime_t busyStart;
     simtime_t busyTime;
 
@@ -55,6 +55,8 @@ MSQueue::MSQueue() { } // Constructor
 
 MSQueue::~MSQueue() // Destructor
 {
+    // TODO: Destroy every message inside the vectors
+
     // Resize the vectors to size 0
     aServiced.clear();
     aServiced.shrink_to_fit();
@@ -84,6 +86,7 @@ void MSQueue::initialize()
     inService = 0;
     congestionStart = SIMTIME_ZERO;
     congestion = SIMTIME_ZERO;
+    congestionTime = 0;
     busyStart = SIMTIME_ZERO;
     busyTime = SIMTIME_ZERO;
 
@@ -92,7 +95,7 @@ void MSQueue::initialize()
     emit(busySignal, false);
     emit(droppedSignal, dropped);
     emit(droppedPercSignal, getDroppedPerc());
-    emit(timeCongestionSignal, congestion);
+    emit(timeCongestionSignal, congestionTime);
     emit(avgUtilizationSignal, busyTime);
     emit(avgActiveServersSignal, getActiveServers());
 }
@@ -100,13 +103,13 @@ void MSQueue::initialize()
 void MSQueue::handleMessage(cMessage *msg)
 {
     EV << "Name: " << msg->getName() << endl;
+
     if (strcmp(msg->getName(), "end-service") == 0) { // Self-message arrived
 
         auto serviced = getServicedMessage(msg); // Remove the message from the service
-        EV << "Serviced: " << serviced->getName() << endl;
 
-        inService--;
         EV << "Completed service of " << serviced->getName() << endl;
+        inService--;
 
         emit(responseTimeSignal, simTime() - serviced->getTimestamp()); //Update the response time
         EV << "Owner: " << serviced->getOwner() << endl;
@@ -118,13 +121,21 @@ void MSQueue::handleMessage(cMessage *msg)
 
             EV << "Empty queue" <<endl;
 
+            // Clear the arrays
+            if (inService == 0){
+                aServiced.clear();
+                aServiced.shrink_to_fit();
+                aEndMsg.clear();
+                aEndMsg.shrink_to_fit();
+            }
+
             if (isIdle()) { // All servers are idle
 
                 EV << "All servers are idle" << endl;
 
                 // Update the stats
                 emit(busySignal, false);
-                emit(avgUtilizationSignal, busyTime);
+                emit(avgUtilizationSignal, busyTime / simTime());
                 emit(avgActiveServersSignal, getActiveServers());
                 busyTime += simTime() - busyStart;
             }
@@ -136,6 +147,7 @@ void MSQueue::handleMessage(cMessage *msg)
                 EV << "Congestion: " << congestion << " start: " << congestionStart << endl;
                 // Update the total congestion time
                 congestion += simTime() - congestionStart;
+                emit(timeCongestionSignal, congestion / simTime());
             }
 
             auto toServe = deQueue(); // We extract a message from the queue basing on the chosen policy
@@ -177,13 +189,11 @@ void MSQueue::handleMessage(cMessage *msg)
 
             // Update the stats
             emit(busySignal, true);
-            emit(avgUtilizationSignal, busyTime);
+            emit(avgUtilizationSignal, busyTime / simTime());
             emit(avgActiveServersSignal, getActiveServers());
             busyStart = simTime();
         }
         else {  // Servers are busy, add to the queue
-
-            EV << msg->getName() << " enters queue"<< endl;
 
             if (isBlocked()){ // Queue is full
                 EV << "Rejected " << msg->getName() << endl;
@@ -192,7 +202,8 @@ void MSQueue::handleMessage(cMessage *msg)
             }
             else{ // Queue is not full
 
-                 queue.insert(msg); // We insert the message in the queue
+                EV << msg->getName() << " enters queue"<< endl;
+                queue.insert(msg); // We insert the message in the queue
 
                 if (isBlocked()) // If we filled the queue, start the congestion interval
                     congestionStart = simTime();
@@ -261,6 +272,7 @@ void MSQueue::removeObj(std::vector<cMessage*> vector, cMessage* obj){ // Remove
     for (auto i = vector.begin(); i != vector.end(); ++i) {
         if ((cMessage*)&i == obj) {
             i = vector.erase(i);
+            vector.shrink_to_fit();
             return;
         }
     }
